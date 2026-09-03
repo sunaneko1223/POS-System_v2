@@ -1,0 +1,895 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>レジシステム</title>
+<link rel="manifest" href="./manifest.json">
+<link rel="stylesheet" href="./library/tailwind.min.css">
+<link rel="stylesheet" href="./library/fonts.css">
+<link rel="icon" href="./favicon.png" type="image/png">
+<style>
+html, body { height: 100%; overflow: hidden; position: fixed; width: 100%; }
+body { font-family: 'Inter', 'Noto Sans JP', sans-serif; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+.selected-cart { border-color: #3b82f6 !important; background-color: #eff6ff !important; }
+.screen { display: none; }
+.screen.active { display: flex; }
+</style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center">
+<div class="w-full h-full max-w-4xl mx-auto bg-white shadow-2xl rounded-lg flex flex-col overflow-hidden">
+
+  <!-- ========== 画面1: 商品選択 ========== -->
+  <div id="screen1" class="screen active w-full h-full flex-col overflow-hidden">
+    <header class="bg-gray-800 text-white p-4 flex justify-between items-center flex-shrink-0">
+      <h1 class="text-xl font-bold">レジ１：商品選択</h1>
+      <div class="flex gap-2">
+        <button id="btn-to-server" class="bg-teal-500 hover:bg-teal-600 text-xs py-2 px-3 rounded-lg font-bold transition">サーバー</button>
+        <button id="btn-to-manager" class="bg-purple-500 hover:bg-purple-600 text-xs py-2 px-3 rounded-lg font-bold transition">商品管理</button>
+        <button id="btn-to-history" class="bg-indigo-500 hover:bg-indigo-600 text-xs py-2 px-3 rounded-lg font-bold transition">取引履歴</button>
+      </div>
+    </header>
+    <main class="flex-grow p-4 grid grid-cols-1 md:grid-cols-3 gap-4 overflow-hidden min-h-0">
+      <div id="product-list" class="md:col-span-2 grid grid-cols-2 sm:grid-cols-3 gap-4 p-4 bg-gray-50 rounded-lg overflow-y-auto no-scrollbar content-start border border-gray-100 min-h-0"></div>
+      <div class="md:col-span-1 bg-gray-100 p-4 rounded-lg flex flex-col border border-gray-200 overflow-hidden">
+        <h2 class="text-lg font-bold border-b pb-2 mb-4 flex-shrink-0">ご注文内容</h2>
+        <div id="cart-items" class="flex-grow space-y-2 overflow-y-auto no-scrollbar min-h-0"></div>
+        <div class="mt-3 space-y-2 flex-shrink-0">
+          <button id="remove-selected-btn" class="w-full bg-red-500 text-white font-bold py-2 rounded-lg text-sm disabled:opacity-50" disabled>選択商品を1つ減らす</button>
+
+          <div class="pt-2 border-t border-gray-300">
+            <div id="discount-row" class="flex justify-between text-red-500 text-sm hidden"><span>割引</span><span id="discount-amount">¥0</span></div>
+            <div class="flex justify-between items-end"><span class="text-xl font-bold">合計</span><span id="total-amount-display" class="text-2xl font-bold">¥0</span></div>
+            <button id="checkout-button" class="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 rounded-lg mt-3 text-lg transition shadow-md active:scale-95">会計へ進む</button>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- ========== 画面2: お支払い ========== -->
+  <div id="screen2" class="screen w-full h-full flex-col overflow-hidden">
+    <header class="bg-gray-800 text-white p-4 flex justify-between items-center flex-shrink-0">
+      <h1 class="text-xl font-bold">レジ２：お支払い</h1>
+      <button id="back-from-payment" class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg transition">戻る</button>
+    </header>
+    <main class="flex-grow p-8 grid grid-cols-1 md:grid-cols-2 gap-8 items-center min-h-0 overflow-y-auto no-scrollbar">
+      <div class="space-y-6 bg-gray-50 p-8 rounded-2xl border border-gray-200">
+        <div><label class="text-sm font-bold text-gray-500">お支払い金額</label><p id="payment-due" class="text-5xl font-bold text-gray-800 border-b-2 pb-2">¥0</p></div>
+        <div><label class="text-sm font-bold text-gray-500">お預かり金額</label><p id="amount-tendered-display" class="text-5xl font-bold text-blue-500 border-b-2 pb-2">¥0</p></div>
+        <div><label class="text-sm font-bold text-gray-500">おつり</label><p id="change-due-display" class="text-5xl font-bold text-green-500">¥0</p></div>
+      </div>
+      <div class="flex flex-col items-center">
+        <div class="grid grid-cols-3 gap-3 w-full max-w-xs">
+          <button class="keypad-btn text-2xl p-6 bg-white border border-gray-200 shadow-sm rounded-xl font-bold active:bg-gray-100">7</button>
+          <button class="keypad-btn text-2xl p-6 bg-white border border-gray-200 shadow-sm rounded-xl font-bold active:bg-gray-100">8</button>
+          <button class="keypad-btn text-2xl p-6 bg-white border border-gray-200 shadow-sm rounded-xl font-bold active:bg-gray-100">9</button>
+          <button class="keypad-btn text-2xl p-6 bg-white border border-gray-200 shadow-sm rounded-xl font-bold active:bg-gray-100">4</button>
+          <button class="keypad-btn text-2xl p-6 bg-white border border-gray-200 shadow-sm rounded-xl font-bold active:bg-gray-100">5</button>
+          <button class="keypad-btn text-2xl p-6 bg-white border border-gray-200 shadow-sm rounded-xl font-bold active:bg-gray-100">6</button>
+          <button class="keypad-btn text-2xl p-6 bg-white border border-gray-200 shadow-sm rounded-xl font-bold active:bg-gray-100">1</button>
+          <button class="keypad-btn text-2xl p-6 bg-white border border-gray-200 shadow-sm rounded-xl font-bold active:bg-gray-100">2</button>
+          <button class="keypad-btn text-2xl p-6 bg-white border border-gray-200 shadow-sm rounded-xl font-bold active:bg-gray-100">3</button>
+          <button class="keypad-btn text-2xl p-6 bg-white border border-gray-200 shadow-sm rounded-xl font-bold active:bg-gray-100">0</button>
+          <button id="backspace-keypad" class="text-2xl p-6 bg-red-500 text-white shadow-md rounded-xl font-bold">⌫</button>
+          <button id="clear-keypad" class="text-2xl p-6 bg-yellow-400 text-white shadow-md rounded-xl font-bold">C</button>
+        </div>
+        <button id="calculate-change-button" class="w-full max-w-xs mt-6 bg-gray-400 text-white font-bold py-4 rounded-xl text-xl shadow-lg active:scale-95 transition" disabled>会計確定</button>
+      </div>
+    </main>
+  </div>
+
+  <!-- ========== 画面3: お会計完了 ========== -->
+  <div id="screen3" class="screen w-full h-full flex-col overflow-hidden">
+    <header class="bg-gray-800 text-white p-4 flex-shrink-0 text-center"><h1 class="text-xl font-bold">レジ３：お会計完了</h1></header>
+    <main class="flex-grow p-8 flex flex-col justify-center items-center overflow-y-auto no-scrollbar">
+      <div class="w-full max-w-2xl bg-white text-center">
+        <div class="mb-6">
+          <h2 class="text-sm font-bold text-gray-400 uppercase tracking-widest">受付番号</h2>
+          <p id="final-order-number" class="text-9xl font-black text-red-500 leading-none">0</p>
+        </div>
+        <div class="mb-6">
+          <h2 class="text-lg font-bold text-gray-600">おつり合計</h2>
+          <p id="final-change-amount" class="text-6xl font-bold text-green-600">¥0</p>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 text-left">
+          <div>
+            <h3 class="font-bold border-b-2 mb-2 pb-1 text-gray-500 text-sm">おつり内訳</h3>
+            <div id="change-breakdown" class="font-mono text-sm bg-gray-50 p-4 rounded-xl space-y-1"></div>
+          </div>
+          <div>
+            <h3 class="font-bold border-b-2 mb-2 pb-1 text-gray-500 text-sm">ご購入内容</h3>
+            <div id="final-order-summary" class="text-xs bg-gray-50 p-4 rounded-xl max-h-40 overflow-y-auto no-scrollbar space-y-1"></div>
+          </div>
+        </div>
+        <button id="new-transaction-button" class="w-full max-w-sm mt-10 bg-blue-500 text-white font-bold py-5 rounded-2xl text-2xl shadow-xl active:scale-95 transition">次の会計へ</button>
+      </div>
+    </main>
+  </div>
+
+  <!-- ========== 画面4: 取引履歴 ========== -->
+  <div id="screen4" class="screen w-full h-full flex-col overflow-hidden">
+    <header class="bg-gray-800 text-white p-4 flex justify-between items-center flex-shrink-0">
+      <h1 class="text-xl font-bold">レジ４：取引履歴</h1>
+      <button id="back-from-history" class="bg-indigo-500 text-white font-bold py-2 px-4 rounded-lg transition text-sm">戻る</button>
+    </header>
+    <main class="flex-grow p-6 flex flex-col min-h-0 bg-gray-50">
+      <div class="flex-shrink-0 mb-4">
+        <input type="search" id="history-search-input" placeholder="受付番号で検索" class="w-full p-3 border border-gray-200 rounded-lg shadow-sm outline-none">
+      </div>
+      <div id="history-summary" class="mb-6 p-6 bg-white rounded-xl shadow-sm border border-gray-100 flex-shrink-0"></div>
+      <div id="history-list" class="flex-grow overflow-y-auto no-scrollbar space-y-4 pb-4"></div>
+      <div class="mt-4 flex justify-center flex-shrink-0">
+        <button id="clear-history-button" class="bg-red-500 text-white font-bold py-3 px-10 rounded-xl shadow-lg text-sm">履歴を消去</button>
+      </div>
+    </main>
+  </div>
+
+  <!-- ========== 画面5: 商品管理 ========== -->
+  <div id="screen5" class="screen w-full h-full flex-col overflow-hidden">
+    <header class="bg-gray-800 text-white p-4 flex justify-between items-center flex-shrink-0">
+      <h1 class="text-xl font-bold">レジ５：商品管理</h1>
+      <button id="back-from-manager" class="bg-purple-500 text-white font-bold py-2 px-6 rounded-lg transition text-sm">戻る</button>
+    </header>
+    <main class="flex-grow p-6 flex flex-col min-h-0 bg-gray-50">
+      <div class="mb-8 p-6 bg-white rounded-xl shadow-sm border border-gray-100 flex-shrink-0">
+        <h2 class="text-sm font-bold mb-4 text-gray-400 uppercase">新しい商品を追加</h2>
+        <div class="flex flex-col md:flex-row gap-3">
+          <input type="text" id="new-product-name" placeholder="商品名" class="flex-grow p-3 border border-gray-200 rounded-xl outline-none">
+          <input type="number" id="new-product-price" placeholder="価格" class="w-full md:w-32 p-3 border border-gray-200 rounded-xl outline-none text-right">
+          <button id="add-product-btn" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-8 rounded-xl transition">追加</button>
+        </div>
+      </div>
+      <h2 class="text-sm font-bold mb-3 text-gray-400 uppercase flex-shrink-0 ml-1">登録済み商品リスト</h2>
+      <div id="product-management-list" class="flex-grow overflow-y-auto no-scrollbar space-y-3 pb-4"></div>
+    </main>
+  </div>
+
+  <!-- ========== 画面6: サーバー連携 ========== -->
+  <div id="screen6" class="screen w-full h-full flex-col overflow-hidden">
+    <header class="bg-gray-800 text-white p-4 flex justify-between items-center flex-shrink-0">
+      <h1 class="text-xl font-bold">レジ６：サーバー連携</h1>
+      <button id="back-from-server" class="bg-teal-500 hover:bg-teal-600 text-white font-bold py-2 px-4 rounded-lg transition text-sm">戻る</button>
+    </header>
+    <main class="flex-grow p-6 flex flex-col gap-6 overflow-y-auto no-scrollbar bg-gray-50 min-h-0">
+
+      <!-- 送信パネル -->
+      <div class="p-6 bg-white rounded-xl shadow-sm border border-gray-100 flex-shrink-0">
+        <h2 class="text-sm font-bold mb-3 text-gray-400 uppercase">このレジから集計サーバーへ送信</h2>
+        <div id="device-select" class="grid grid-cols-5 gap-2 mb-4"></div>
+        <button id="send-btn" class="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 rounded-xl transition disabled:bg-gray-300 disabled:cursor-not-allowed" disabled>端末を選択してください</button>
+        <div id="status-msg" class="mt-3 p-3 rounded-lg text-sm hidden"></div>
+      </div>
+
+      <!-- 全端末履歴一覧 -->
+      <div class="p-6 bg-white rounded-xl shadow-sm border border-gray-100 flex-shrink-0">
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="text-sm font-bold text-gray-400 uppercase">全端末の取引一覧</h2>
+          <button id="server-reload-btn" class="bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg text-xs transition">再読み込み</button>
+        </div>
+        <div id="server-summary" class="mb-4"></div>
+        <div id="server-tx-list" class="space-y-3"></div>
+      </div>
+
+    </main>
+  </div>
+
+</div>
+
+<script src="./library/dexie.js"></script>
+<script src="./library/js-yaml.min.js"></script>
+<script>
+(function() {
+'use strict';
+
+// ==================== 音声 ====================
+let audioCtx;
+function playSound(type = 'click') {
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.connect(g); g.connect(audioCtx.destination);
+    g.gain.setValueAtTime(0.1, audioCtx.currentTime);
+    switch(type) {
+      case 'add':    o.type='sine';     o.frequency.setValueAtTime(523.25, audioCtx.currentTime); g.gain.exponentialRampToValueAtTime(1e-5, audioCtx.currentTime+.1); break;
+      case 'remove': o.type='sine';     o.frequency.setValueAtTime(349.23, audioCtx.currentTime); g.gain.exponentialRampToValueAtTime(1e-5, audioCtx.currentTime+.15); break;
+      case 'confirm':o.type='triangle'; o.frequency.setValueAtTime(523.25, audioCtx.currentTime); o.frequency.linearRampToValueAtTime(659.25, audioCtx.currentTime+.1); g.gain.exponentialRampToValueAtTime(1e-5, audioCtx.currentTime+.2); break;
+      case 'navigate':o.type='sawtooth';o.frequency.setValueAtTime(261.63, audioCtx.currentTime); g.gain.exponentialRampToValueAtTime(1e-5, audioCtx.currentTime+.1); break;
+      case 'clear':  o.type='sine';     o.frequency.setValueAtTime(196,    audioCtx.currentTime); g.gain.exponentialRampToValueAtTime(1e-5, audioCtx.currentTime+.2); break;
+      default:       o.type='sine';     o.frequency.setValueAtTime(440,    audioCtx.currentTime); g.gain.exponentialRampToValueAtTime(1e-5, audioCtx.currentTime+.1);
+    }
+    o.start(audioCtx.currentTime); o.stop(audioCtx.currentTime + .3);
+  } catch(e) {}
+}
+
+// ==================== グローバル変数 ====================
+let products = [];
+let cart = {};
+let cartSequence = [];
+let posHistory = [];
+let currentTenderAmount = 0;
+let selectedCartKey = null;
+let nextOrderNumber = 1;
+let selectedDevice = null;
+let serverUrlDefault = '';   // data/serverlink.yml の値
+
+// ==================== 画面遷移 ====================
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+// ==================== Dexie (IndexedDB) ====================
+// 配布版でDBを作り直したためバージョンは1から。
+// テーブル構成: products(商品) / history(取引履歴) / settings(その他設定の入れ物)
+const DB_NAME = 'POS_System_DB';
+const DB_VERSION = 1;
+const db = new Dexie(DB_NAME);
+db.version(DB_VERSION).stores({
+  products: 'id',
+  history: 'orderNumber',
+  settings: 'key'
+});
+
+async function settingsGet(key) {
+  const row = await db.settings.get(key);
+  return row ? row.value : undefined;
+}
+
+async function settingsSet(key, value) {
+  await db.settings.put({ key, value });
+}
+
+// ==================== 商品データ ====================
+async function saveProducts() {
+  await db.products.clear();
+  if (products.length) await db.products.bulkPut(products);
+}
+
+async function loadProductsFromYAML() {
+  try {
+    const res = await fetch('./data/item.yml');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const text = await res.text();
+    const parsed = jsyaml.load(text);
+    if (!Array.isArray(parsed)) throw new Error('Not array');
+    products = parsed.filter(p => p.id && p['商品名'] && p['値段'] !== undefined);
+    await saveProducts();
+    return;
+  } catch(e) {
+    console.warn('item.yml読み込み失敗、DBの内容を使用します:', e.message);
+  }
+  // オフライン等でYAMLが読めない場合はDBの内容にフォールバック
+  try {
+    const stored = await db.products.toArray();
+    if (stored.length) { products = stored; return; }
+  } catch(e) {}
+  products = [];
+}
+
+// ==================== 取引履歴データ ====================
+async function loadHistory() {
+  try {
+    posHistory = await db.history.toArray();
+    posHistory.sort((a, b) => a.orderNumber - b.orderNumber);
+    const n = await settingsGet('nextOrderNumber');
+    nextOrderNumber = (typeof n === 'number' && n > 0) ? n : 1;
+  } catch(e) {
+    console.error('履歴読み込みエラー:', e);
+    posHistory = [];
+    nextOrderNumber = 1;
+  }
+}
+
+async function saveTransaction(transaction) {
+  await db.history.put(transaction);
+  await settingsSet('nextOrderNumber', nextOrderNumber);
+}
+
+async function clearAllHistory() {
+  await db.history.clear();
+  posHistory = [];
+  nextOrderNumber = 1;
+  await settingsSet('nextOrderNumber', 1);
+}
+
+// ==================== サーバー連携用URL(data/serverlink.ymlのみ使用) ====================
+async function loadServerUrlDefault() {
+  try {
+    const res = await fetch('./data/serverlink.yml');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const text = await res.text();
+    const parsed = jsyaml.load(text);
+    if (parsed && typeof parsed.server_url === 'string') return parsed.server_url.trim();
+  } catch(e) {
+    console.warn('serverlink.yml読み込み失敗:', e.message);
+  }
+  return '';
+}
+
+async function initServerSettings() {
+  serverUrlDefault = await loadServerUrlDefault();
+}
+
+function getEffectiveServerUrl() {
+  return serverUrlDefault;
+}
+
+// ==================== 商品レンダリング ====================
+function renderProducts() {
+  const el = document.getElementById('product-list');
+  if (!el) return;
+  if (!products.length) {
+    el.innerHTML = '<div class="col-span-full text-center text-gray-400 py-8">商品が登録されていません。<br>商品管理から追加してください。</div>';
+    return;
+  }
+  el.innerHTML = '';
+  products.forEach(p => {
+    const card = document.createElement('div');
+    card.className = 'bg-white p-4 rounded-lg border-2 border-gray-200 cursor-pointer hover:shadow-md hover:border-blue-300 transition active:scale-95';
+    const flavorHtml = p['種類'] ? `<div class="text-xs text-gray-500 mt-1">${p['種類']}</div>` : '<div class="text-xs mt-1 opacity-0"> </div>';
+    card.innerHTML = `<h3 class="font-bold text-sm mb-2">${p['商品名']}</h3>${flavorHtml}<p class="text-lg font-bold text-blue-600 mt-3">¥${p['値段']}</p>`;
+    card.addEventListener('click', () => {
+      playSound('add');
+      addToCart(p.id, String(p['商品名']), Number(p['値段']));
+      updateCartView();
+    });
+    el.appendChild(card);
+  });
+}
+
+// ==================== カート ====================
+function addToCart(id, name, price) {
+  const key = `${id}_${name}_${price}`;
+  if (!cart[key]) { cart[key] = { id, name, price, qty: 0 }; cartSequence.push(key); }
+  cart[key].qty += 1;
+}
+
+function removeFromCart(key) {
+  if (!cart[key]) return;
+  cart[key].qty -= 1;
+  if (cart[key].qty <= 0) {
+    delete cart[key];
+    cartSequence = cartSequence.filter(k => k !== key);
+  }
+}
+
+function getCartTotal() {
+  let total = 0;
+  cartSequence.forEach(k => { if (cart[k]) total += cart[k].price * cart[k].qty; });
+  return total;
+}
+
+function updateCartView() {
+  const cartEl = document.getElementById('cart-items');
+  const totalEl = document.getElementById('total-amount-display');
+  const discountRow = document.getElementById('discount-row');
+  const removeBtn = document.getElementById('remove-selected-btn');
+
+  cartEl.innerHTML = '';
+  const total = getCartTotal();
+
+  cartSequence.forEach(key => {
+    const item = cart[key];
+    if (!item) return;
+    const div = document.createElement('div');
+    div.className = 'bg-white p-3 rounded-lg border-2 border-gray-200 cursor-pointer hover:bg-gray-50 transition';
+    div.innerHTML = `
+      <div class="flex justify-between items-center text-sm">
+        <span class="font-bold">${item.name}</span>
+        <span class="text-gray-500">×${item.qty}</span>
+      </div>
+      <div class="text-right text-blue-600 font-bold mt-1">¥${item.price * item.qty}</div>
+    `;
+    div.addEventListener('click', () => {
+      selectedCartKey = key;
+      document.querySelectorAll('#cart-items > div').forEach(el => el.classList.remove('selected-cart'));
+      div.classList.add('selected-cart');
+      removeBtn.disabled = false;
+      playSound('navigate');
+    });
+    if (selectedCartKey === key) div.classList.add('selected-cart');
+    cartEl.appendChild(div);
+  });
+
+  discountRow.classList.add('hidden');
+  totalEl.textContent = `¥${total}`;
+  if (!selectedCartKey || !cart[selectedCartKey]) {
+    selectedCartKey = null;
+    removeBtn.disabled = true;
+  }
+}
+
+// ==================== おつり計算 ====================
+function calcChange(change) {
+  const bills = [10000, 5000, 2000, 1000, 500, 100, 50, 10, 5, 1];
+  const result = [];
+  let rem = change;
+  bills.forEach(b => {
+    const count = Math.floor(rem / b);
+    if (count > 0) { result.push({ bill: b, count }); rem -= b * count; }
+  });
+  return result;
+}
+
+// ==================== 取引履歴レンダリング ====================
+function renderHistoryList(list) {
+  const el = document.getElementById('history-list');
+  const target = list !== undefined ? list : posHistory;
+  el.innerHTML = '';
+  if (!target.length) {
+    el.innerHTML = '<div class="text-center text-gray-400 py-8">取引履歴がありません</div>';
+    return;
+  }
+  [...target].reverse().forEach(t => {
+    const div = document.createElement('div');
+    div.className = 'bg-white p-4 rounded-lg border border-gray-200';
+    const itemsHtml = t.items.map(i => `<span class="block text-xs">${i.name} ×${i.qty} (¥${i.price * i.qty})</span>`).join('');
+    div.innerHTML = `
+      <div class="flex justify-between items-center mb-2">
+        <span class="font-bold text-lg">受付 #${t.orderNumber}</span>
+        <span class="text-sm text-gray-500">${t.timestamp}</span>
+      </div>
+      <div class="text-xs space-y-1 text-gray-700 mb-2">${itemsHtml}</div>
+      <div class="flex justify-between text-sm font-bold border-t pt-2 mt-1">
+        <span>合計: ¥${t.total}</span>
+        <span class="text-green-600">おつり: ¥${t.change}</span>
+      </div>
+    `;
+    el.appendChild(div);
+  });
+}
+
+function renderHistorySummary() {
+  const el = document.getElementById('history-summary');
+  const totalRevenue = posHistory.reduce((s, t) => s + t.total, 0);
+  const count = posHistory.length;
+  const totalItems = posHistory.reduce((s, t) => s + t.items.reduce((is, i) => is + i.qty, 0), 0);
+  const lastTimestamp = count > 0 ? posHistory[count - 1].timestamp : '─';
+  el.innerHTML = `
+    <h3 class="font-bold text-gray-700 mb-3">売上集計</h3>
+    <div class="grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
+      <div class="text-green-600 font-bold">総売上: <span>¥${totalRevenue}</span></div>
+      <div class="text-gray-700 font-bold">売れた総商品数: <span>${totalItems}個</span></div>
+      <div class="text-gray-700 font-bold">取引件数: <span>${count}件</span></div>
+      <div class="text-gray-700 font-bold">最終取引: <span>${lastTimestamp}</span></div>
+    </div>
+  `;
+}
+
+// ==================== 商品管理レンダリング ====================
+function renderProductManagementList() {
+  const el = document.getElementById('product-management-list');
+  el.innerHTML = '';
+  if (!products.length) {
+    el.innerHTML = '<div class="text-center text-gray-400 py-8">商品がありません</div>';
+    return;
+  }
+  products.forEach((p, i) => {
+    const div = document.createElement('div');
+    div.className = 'bg-white p-4 rounded-lg border border-gray-200 flex justify-between items-center';
+    div.innerHTML = `
+      <div>
+        <p class="font-bold text-gray-800">${p['商品名']}</p>
+        <p class="text-sm text-gray-500">¥${p['値段']}</p>
+      </div>
+      <button class="del-btn bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg text-sm" data-index="${i}">削除</button>
+    `;
+    div.querySelector('.del-btn').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      products.splice(i, 1);
+      await saveProducts();
+      renderProductManagementList();
+      renderProducts();
+      playSound('remove');
+    });
+    el.appendChild(div);
+  });
+}
+
+// ==================== サーバー連携画面 ====================
+function renderDeviceSelect() {
+  const el = document.getElementById('device-select');
+  el.innerHTML = '';
+  for (let i = 1; i <= 10; i++) {
+    const btn = document.createElement('button');
+    btn.className = 'py-3 border-2 border-gray-200 rounded-lg bg-white font-bold text-sm transition';
+    btn.textContent = `レジ${i}`;
+    btn.addEventListener('click', () => {
+      selectedDevice = `レジ${i}`;
+      document.querySelectorAll('#device-select button').forEach(b => b.classList.remove('border-blue-500', 'bg-blue-50', 'text-blue-700'));
+      btn.classList.add('border-blue-500', 'bg-blue-50', 'text-blue-700');
+      updateSendButton();
+      playSound('click');
+    });
+    el.appendChild(btn);
+  }
+}
+
+function updateSendButton() {
+  const btn = document.getElementById('send-btn');
+  if (selectedDevice) {
+    btn.disabled = false;
+    btn.textContent = `${selectedDevice} のデータを送信`;
+  } else {
+    btn.disabled = true;
+    btn.textContent = '端末を選択してください';
+  }
+}
+
+function showServerStatus(type, message) {
+  const el = document.getElementById('status-msg');
+  const colorClass = type === 'error' ? 'bg-red-50 text-red-700' : type === 'success' ? 'bg-green-50 text-green-700' : 'bg-blue-50 text-blue-700';
+  el.className = `mt-3 p-3 rounded-lg text-sm ${colorClass}`;
+  el.textContent = message;
+}
+
+function hideServerStatus() {
+  document.getElementById('status-msg').className = 'mt-3 p-3 rounded-lg text-sm hidden';
+}
+
+async function handleSend() {
+  hideServerStatus();
+  if (!selectedDevice) { showServerStatus('error', '端末を選択してください'); return; }
+
+  if (!navigator.onLine) {
+    showServerStatus('error', '❌ ネットワークに接続されていません。Wi-Fiに接続してから再度お試しください。');
+    return;
+  }
+
+  const serverUrl = getEffectiveServerUrl();
+  if (!serverUrl) {
+    showServerStatus('error', 'サーバーURLが設定されていません。data/serverlink.yml を確認してください。');
+    return;
+  }
+
+  const sendBtn = document.getElementById('send-btn');
+  sendBtn.disabled = true;
+  showServerStatus('info', '送信中...');
+
+  try {
+    const lastSentKey = `lastSent_${selectedDevice}`;
+    const lastSent = (await settingsGet(lastSentKey)) || 0;
+
+    if (!posHistory.length) {
+      showServerStatus('error', '送信できる取引データがありません');
+      return;
+    }
+
+    const currentMax = Math.max(...posHistory.map(t => t.orderNumber));
+    if (currentMax <= lastSent) {
+      showServerStatus('error', '新しいデータがありません。前回送信分よりあとの取引がまだ発生していません。');
+      return;
+    }
+
+    const diff = posHistory.filter(t => t.orderNumber > lastSent);
+    const payload = diff.map(t => ({ ...t, deviceName: selectedDevice }));
+
+    const res = await fetch(`${serverUrl}/submit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ transactions: payload })
+    });
+
+    if (!res.ok) throw new Error(`サーバーエラー (HTTP ${res.status})`);
+
+    const result = await res.json();
+    if (!result.ok) throw new Error(result.error || '送信に失敗しました');
+
+    await settingsSet(lastSentKey, currentMax);
+    showServerStatus('success', `✅ ${diff.length}件のデータを送信しました（${selectedDevice}）`);
+    loadServerData();
+
+  } catch(e) {
+    console.error(e);
+    showServerStatus('error', `❌ 送信に失敗しました: ${e.message}`);
+  } finally {
+    sendBtn.disabled = false;
+    updateSendButton();
+  }
+}
+
+async function loadServerData() {
+  const summaryEl = document.getElementById('server-summary');
+  const listEl = document.getElementById('server-tx-list');
+  const serverUrl = getEffectiveServerUrl();
+
+  if (!serverUrl) {
+    summaryEl.innerHTML = '<div class="text-center text-gray-400 py-4">サーバーURLが未設定です</div>';
+    listEl.innerHTML = '';
+    return;
+  }
+
+  summaryEl.innerHTML = '<div class="text-center text-gray-400 py-4">読み込み中...</div>';
+  listEl.innerHTML = '';
+
+  try {
+    const res = await fetch(`${serverUrl}/api/transactions`);
+    const data = await res.json();
+    if (!data.ok) {
+      summaryEl.innerHTML = `<div class="text-center text-gray-400 py-4">エラー: ${data.error}</div>`;
+      return;
+    }
+    renderServerData(data.transactions);
+  } catch(e) {
+    summaryEl.innerHTML = '<div class="text-center text-gray-400 py-4">サーバーに接続できませんでした</div>';
+  }
+}
+
+function renderServerData(transactions) {
+  const summaryEl = document.getElementById('server-summary');
+  const listEl = document.getElementById('server-tx-list');
+
+  const totalRevenue = transactions.reduce((s, t) => s + (t.total || 0), 0);
+  const count = transactions.length;
+  const totalItems = transactions.reduce((s, t) => s + (t.items || []).reduce((is, i) => is + (i.qty || 0), 0), 0);
+  const lastTimestamp = count > 0 ? transactions[0].timestamp : '─';
+
+  summaryEl.innerHTML = `
+    <div class="grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
+      <div class="text-green-600 font-bold">総売上: <span>¥${totalRevenue.toLocaleString()}</span></div>
+      <div class="text-gray-700 font-bold">売れた総商品数: <span>${totalItems}個</span></div>
+      <div class="text-gray-700 font-bold">取引件数: <span>${count}件</span></div>
+      <div class="text-gray-700 font-bold">最終取引: <span>${lastTimestamp}</span></div>
+    </div>
+  `;
+
+  if (!count) {
+    listEl.innerHTML = '<div class="text-center text-gray-400 py-8">まだ取引データがありません</div>';
+    return;
+  }
+
+  listEl.innerHTML = transactions.map(t => {
+    const itemsHtml = (t.items || []).map(i => `${i.name} ×${i.qty}`).join(' / ');
+    return `
+      <div class="bg-gray-50 border border-gray-200 rounded-lg p-4">
+        <div class="text-xs text-gray-400 mb-1">${t.deviceName || '不明な端末'}</div>
+        <div class="flex justify-between items-center mb-1">
+          <span class="text-blue-600 font-bold">受付番号: ${t.orderNumber}</span>
+          <span class="font-bold text-lg">¥${(t.total || 0).toLocaleString()}</span>
+        </div>
+        <div class="text-xs text-gray-400 mb-2">${t.timestamp}</div>
+        <div class="text-sm text-gray-700 mb-2">${itemsHtml}</div>
+        <div class="text-right text-xs text-gray-500 border-t border-gray-200 pt-2 mt-2">預り: ¥${(t.tender || 0).toLocaleString()} / おつり: ¥${(t.change || 0).toLocaleString()}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+// ==================== イベントリスナー設定 ====================
+function setupEvents() {
+  // 画面1 → 画面2（会計へ）
+  document.getElementById('checkout-button').addEventListener('click', () => {
+    const total = getCartTotal();
+    if (!cartSequence.length) { alert('カートに商品がありません'); return; }
+    currentTenderAmount = 0;
+    document.getElementById('payment-due').textContent = `¥${total}`;
+    document.getElementById('amount-tendered-display').textContent = '¥0';
+    document.getElementById('change-due-display').textContent = '¥0';
+    document.getElementById('change-due-display').className = 'text-5xl font-bold text-green-500';
+    showScreen('screen2');
+    playSound('navigate');
+  });
+
+  // 画面2 → 画面1（戻る）
+  document.getElementById('back-from-payment').addEventListener('click', () => {
+    showScreen('screen1');
+    playSound('navigate');
+  });
+
+  // テンキー
+  document.querySelectorAll('.keypad-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const digit = btn.textContent.trim();
+      if (currentTenderAmount === 0) currentTenderAmount = parseInt(digit);
+      else currentTenderAmount = parseInt(String(currentTenderAmount) + digit);
+      updatePaymentDisplay();
+      playSound('click');
+    });
+  });
+
+  document.getElementById('backspace-keypad').addEventListener('click', () => {
+    currentTenderAmount = Math.floor(currentTenderAmount / 10);
+    updatePaymentDisplay();
+    playSound('remove');
+  });
+
+  document.getElementById('clear-keypad').addEventListener('click', () => {
+    currentTenderAmount = 0;
+    updatePaymentDisplay();
+    playSound('clear');
+  });
+
+  // 会計確定
+  document.getElementById('calculate-change-button').addEventListener('click', async () => {
+    const due = parseInt(document.getElementById('payment-due').textContent.replace('¥', '')) || 0;
+    const change = currentTenderAmount - due;
+    if (change < 0) { alert('お預かり金額が不足しています'); return; }
+
+    const items = cartSequence.map(k => ({ name: cart[k].name, price: cart[k].price, qty: cart[k].qty }));
+    const transaction = {
+      orderNumber: nextOrderNumber,
+      items,
+      total: due,
+      tender: currentTenderAmount,
+      change,
+      timestamp: new Date().toLocaleString('ja-JP')
+    };
+
+    posHistory.push(transaction);
+    nextOrderNumber++;
+    await saveTransaction(transaction);
+
+    // 画面3表示
+    document.getElementById('final-order-number').textContent = transaction.orderNumber;
+    document.getElementById('final-change-amount').textContent = `¥${change}`;
+    const breakdown = calcChange(change);
+    document.getElementById('change-breakdown').innerHTML = breakdown.length
+      ? breakdown.map(b => `<div class="flex justify-between"><span>¥${b.bill}</span><span>${b.count}枚</span></div>`).join('')
+      : '<div class="text-gray-400">おつりなし</div>';
+    document.getElementById('final-order-summary').innerHTML = items
+      .map(i => `<div class="flex justify-between"><span>${i.name} ×${i.qty}</span><span>¥${i.price * i.qty}</span></div>`)
+      .join('');
+
+    // カートリセット
+    cart = {}; cartSequence = []; selectedCartKey = null;
+    updateCartView();
+
+    showScreen('screen3');
+    playSound('confirm');
+  });
+
+  // 画面3 → 画面1（次の会計へ）
+  document.getElementById('new-transaction-button').addEventListener('click', () => {
+    showScreen('screen1');
+    playSound('navigate');
+  });
+
+  // 画面1 → 画面4（取引履歴）
+  document.getElementById('btn-to-history').addEventListener('click', () => {
+    renderHistorySummary();
+    renderHistoryList();
+    showScreen('screen4');
+    playSound('navigate');
+  });
+
+  // 画面4 → 画面1（戻る）
+  document.getElementById('back-from-history').addEventListener('click', () => {
+    showScreen('screen1');
+    playSound('navigate');
+  });
+
+  // 履歴検索
+  document.getElementById('history-search-input').addEventListener('input', (e) => {
+    const q = e.target.value.trim();
+    if (!q) { renderHistoryList(); return; }
+    renderHistoryList(posHistory.filter(t => String(t.orderNumber).includes(q)));
+  });
+
+  // 履歴クリア
+  document.getElementById('clear-history-button').addEventListener('click', async () => {
+    if (!confirm('取引履歴をすべて削除しますか？')) return;
+    await clearAllHistory();
+    renderHistorySummary();
+    renderHistoryList();
+    playSound('clear');
+  });
+
+  // レジ1 → 画面6（サーバー連携）
+  document.getElementById('btn-to-server').addEventListener('click', async () => {
+    showScreen('screen6');
+    playSound('navigate');
+    renderDeviceSelect();
+    await loadServerData();
+  });
+
+  // 画面6 → 画面1（戻る）
+  document.getElementById('back-from-server').addEventListener('click', () => {
+    showScreen('screen1');
+    playSound('navigate');
+  });
+
+  // 送信ボタン
+  document.getElementById('send-btn').addEventListener('click', handleSend);
+
+  // 全端末一覧の再読み込み
+  document.getElementById('server-reload-btn').addEventListener('click', () => {
+    playSound('navigate');
+    loadServerData();
+  });
+
+  // 画面1 → 画面5（商品管理）
+  document.getElementById('btn-to-manager').addEventListener('click', () => {
+    renderProductManagementList();
+    showScreen('screen5');
+    playSound('navigate');
+  });
+
+  // 画面5 → 画面1（戻る）
+  document.getElementById('back-from-manager').addEventListener('click', () => {
+    showScreen('screen1');
+    playSound('navigate');
+  });
+
+  // 商品追加
+  document.getElementById('add-product-btn').addEventListener('click', async () => {
+    const nameEl = document.getElementById('new-product-name');
+    const priceEl = document.getElementById('new-product-price');
+    const name = nameEl.value.trim();
+    const price = parseInt(priceEl.value) || 0;
+    if (!name) { alert('商品名を入力してください'); return; }
+    if (price <= 0) { alert('価格を正しく入力してください'); return; }
+    const newId = products.length > 0 ? Math.max(...products.map(p => p.id)) + 1 : 1;
+    products.push({ id: newId, '商品名': name, '値段': price });
+    await saveProducts();
+    nameEl.value = ''; priceEl.value = '';
+    renderProductManagementList();
+    renderProducts();
+    playSound('add');
+  });
+
+  // カートの選択商品を削除
+  document.getElementById('remove-selected-btn').addEventListener('click', () => {
+    if (!selectedCartKey) return;
+    removeFromCart(selectedCartKey);
+    if (!cart[selectedCartKey]) selectedCartKey = null;
+    updateCartView();
+    playSound('remove');
+  });
+
+}
+
+function updatePaymentDisplay() {
+  const due = parseInt(document.getElementById('payment-due').textContent.replace('¥', '')) || 0;
+  const change = currentTenderAmount - due;
+  document.getElementById('amount-tendered-display').textContent = `¥${currentTenderAmount}`;
+  const changeEl = document.getElementById('change-due-display');
+  const confirmBtn = document.getElementById('calculate-change-button');
+  if (change >= 0) {
+    changeEl.textContent = `¥${change}`;
+    changeEl.className = 'text-5xl font-bold text-green-500';
+    confirmBtn.disabled = false;
+    confirmBtn.className = 'w-full max-w-xs mt-6 bg-green-500 hover:bg-green-600 text-white font-bold py-4 rounded-xl text-xl shadow-lg active:scale-95 transition';
+  } else {
+    changeEl.textContent = `¥${Math.abs(change)}`;
+    changeEl.className = 'text-5xl font-bold text-red-500';
+    confirmBtn.disabled = true;
+    confirmBtn.className = 'w-full max-w-xs mt-6 bg-gray-400 text-white font-bold py-4 rounded-xl text-xl shadow-lg transition';
+  }
+}
+
+// ==================== Service Worker ====================
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').then(reg => {
+      console.log('✅ Service Worker registered');
+    }).catch(err => {
+      console.warn('⚠️ SW registration failed:', err);
+    });
+  });
+}
+
+// ==================== 起動 ====================
+async function startApp() {
+  try {
+    await db.open();
+    await initServerSettings();
+    await loadHistory();
+    await loadProductsFromYAML();
+  } catch(e) {
+    console.error('Startup error:', e);
+  }
+  renderProducts();
+  updateCartView();
+  setupEvents();
+}
+
+document.addEventListener('DOMContentLoaded', startApp);
+
+})();
+</script>
+</body>
+</html>
