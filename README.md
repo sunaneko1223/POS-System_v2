@@ -25,6 +25,7 @@
 ## 動作環境
 
 - Windows
+- MacBook
 - Android
 - iPhone
 - iPad
