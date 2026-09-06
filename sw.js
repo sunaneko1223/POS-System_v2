@@ -35,6 +35,26 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
+  const url = new URL(e.request.url);
+  const isDataFile = url.pathname.includes('/data/');
+
+  if (isDataFile) {
+    // data/配下(item.yml・serverlink.yml)はオンライン優先。
+    // 取得できたら常に最新内容をキャッシュに保存し直し、
+    // オフライン等で取得できない時だけキャッシュ済みの内容を使う。
+    e.respondWith(
+      fetch(e.request).then(res => {
+        if (res && res.status === 200) {
+          const clone = res.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(e.request, clone));
+        }
+        return res;
+      }).catch(() => caches.match(e.request))
+    );
+    return;
+  }
+
+  // それ以外(アプリ本体・ライブラリ等)はキャッシュ優先(従来通り)
   e.respondWith(
     caches.match(e.request).then(response => response || fetch(e.request).then(res => {
       if (res && res.status === 200 && e.request.method === 'GET') {
