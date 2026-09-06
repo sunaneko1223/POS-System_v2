@@ -9,4 +9,5 @@
 # このファイルは「初期値」です。
 # サーバーがまだ無い場合は、下の例のように仮の値のままで構いません。
 # --------------------------------------------------
-server_url: "https://example.com"
+# server_url: "https://example.com"
+server_url: "https://cdc2eb5e-0cb7-4f9a-9733-e9428c69682c-00-yu1st03b7ibt.sisko.replit.dev"
