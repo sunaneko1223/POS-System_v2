@@ -558,19 +558,14 @@ async function saveTransaction(data) {
   });
 }
 
-// resetOrderNumberがtrueの時だけ受付番号(と各端末の送信済み状態)もリセットする。
-// 履歴削除・番号リセット・送信済み状態の削除を1つのトランザクションにまとめ、
-// 途中で他の操作(会計確定など)と競合して中途半端な状態になるのを防ぐ。
+// resetOrderNumberがtrueの時だけ受付番号もリセットする。
+// v2.7でサーバー送信を「毎回全件送信」方式に変更したため、
+// 送信済み状態(lastSent)の管理自体が不要になった(履歴削除後の再送も安全)。
 async function clearAllHistory(resetOrderNumber) {
   await db.transaction('rw', db.history, db.settings, async () => {
     await db.history.clear();
     if (resetOrderNumber) {
       await db.settings.put({ key: 'nextOrderNumber', value: 1 });
-      // 各端末の「前回送信済み番号」もリセットしないと、
-      // 受付番号がリセットされた際に「新しいデータがありません」と誤判定されるため
-      const allSettings = await db.settings.toArray();
-      const staleSyncKeys = allSettings.filter(r => r.key.startsWith('lastSent_')).map(r => r.key);
-      if (staleSyncKeys.length) await db.settings.bulkDelete(staleSyncKeys);
     }
   });
   posHistory = [];
@@ -932,6 +927,9 @@ function hideServerStatus() {
   document.getElementById('status-msg').className = 'mt-3 p-2 rounded-lg text-xs hidden';
 }
 
+// サーバー側は「送られてきたデータでその端末の記録を丸ごと上書き」する設計のため、
+// レジ本体は毎回posHistory全件を送る。差分管理(lastSent)は不要になり、
+// 何度送っても同じ結果になる(冪等)ので、履歴削除後の再送でも重複計上されない。
 async function handleSend() {
   hideServerStatus();
   if (!selectedDevice) { showServerStatus('error', '端末を選択してください'); return; }
@@ -947,32 +945,20 @@ async function handleSend() {
     return;
   }
 
+  if (!posHistory.length) {
+    showServerStatus('error', '送信できる取引データがありません');
+    return;
+  }
+
   const sendBtn = document.getElementById('send-btn');
   sendBtn.disabled = true;
   showServerStatus('info', '送信中...');
 
   try {
-    const lastSentKey = `lastSent_${selectedDevice}`;
-    const lastSent = (await settingsGet(lastSentKey)) || 0;
-
-    if (!posHistory.length) {
-      showServerStatus('error', '送信できる取引データがありません');
-      return;
-    }
-
-    const currentMax = Math.max(...posHistory.map(t => t.orderNumber));
-    if (currentMax <= lastSent) {
-      showServerStatus('error', '新しいデータがありません。前回送信分よりあとの取引がまだ発生していません。');
-      return;
-    }
-
-    const diff = posHistory.filter(t => t.orderNumber > lastSent);
-    const payload = diff.map(t => ({ ...t, deviceName: selectedDevice }));
-
     const res = await fetch(`${serverUrl}/submit`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ transactions: payload })
+      body: JSON.stringify({ deviceName: selectedDevice, transactions: posHistory })
     });
 
     if (!res.ok) throw new Error(`サーバーエラー (HTTP ${res.status})`);
@@ -980,8 +966,7 @@ async function handleSend() {
     const result = await res.json();
     if (!result.ok) throw new Error(result.error || '送信に失敗しました');
 
-    await settingsSet(lastSentKey, currentMax);
-    showServerStatus('success', `✅ ${diff.length}件のデータを送信しました（${selectedDevice}）`);
+    showServerStatus('success', `✅ ${posHistory.length}件の取引データを送信しました（${selectedDevice}）`);
     loadServerData();
 
   } catch(e) {
