@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>レジシステムv2.7.1</title>
+<title>レジシステム</title>
 <link rel="manifest" href="./manifest.json">
 <link rel="stylesheet" href="./library/tailwind.min.css">
 <link rel="stylesheet" href="./library/fonts.css">
@@ -315,6 +315,14 @@ function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 }
 
+// v2.8〜、日時はISO形式(new Date().toISOString())で保存する(環境によるパースの不安定さを解消するため)。
+// 表示する時だけ、この関数で日本語形式に変換する。
+function formatTimestamp(iso) {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso; // パースできない場合はそのまま表示
+  return d.toLocaleString('ja-JP');
+}
+
 function formatLogArgs(args) {
   return args.map(a => {
     if (a instanceof Error) return `${a.name}: ${a.message}`;
@@ -437,7 +445,10 @@ let currentTenderAmount = 0;
 const MAX_TENDER_DIGITS = 10; // お預かり金額の入力上限桁数
 let selectedCartKey = null;
 let selectedDevice = null;
-let serverUrlDefault = '';   // data/serverlink.yml の値
+let serverUrlDefault = '';   // data/serverlink.yml の server_url
+let apiKey = '';             // data/serverlink.yml の api_key(サーバーへのリクエストに添付)
+let pinConfig = { use_pin: false, pin: 'DEFAULT' }; // data/pin.yml の内容
+let pinVerified = false; // 一度正しいPINを入力したら、アプリを閉じるまでは再確認しない
 
 // ==================== 画面遷移 ====================
 function showScreen(id) {
@@ -475,9 +486,10 @@ async function settingsSet(key, value) {
 function isValidProductName(name) {
   return /[a-zA-Zぁ-んァ-ヶ一-龠]/.test(String(name));
 }
-// 値段は1以上の整数のみ有効
+// 値段は1以上の整数、かつ桁数上限(MAX_PRICE_DIGITS)以内のみ有効
+const MAX_PRICE_DIGITS = 10;
 function isValidPrice(price) {
-  return Number.isInteger(price) && price > 0;
+  return Number.isInteger(price) && price > 0 && String(price).length <= MAX_PRICE_DIGITS;
 }
 
 async function saveProducts() {
@@ -497,6 +509,7 @@ async function loadProductsFromYAML() {
     const text = await res.text();
     const parsed = jsyaml.load(text);
     if (!Array.isArray(parsed)) throw new Error('Not array');
+    const seenIds = new Set();
     ymlProducts = parsed.filter(p => {
       if (!(p.id && p['商品名'] && p['値段'] !== undefined)) return false;
       if (!isValidProductName(p['商品名'])) {
@@ -504,9 +517,14 @@ async function loadProductsFromYAML() {
         return false;
       }
       if (!isValidPrice(Number(p['値段']))) {
-        console.warn(`item.yml: 商品「${p['商品名']}」は値段が不正(1以上の整数のみ有効)なため読み込みませんでした`);
+        console.warn(`item.yml: 商品「${p['商品名']}」は値段が不正(1以上の整数、${MAX_PRICE_DIGITS}桁以内のみ有効)なため読み込みませんでした`);
         return false;
       }
+      if (seenIds.has(p.id)) {
+        console.warn(`item.yml: id「${p.id}」が重複しているため、商品「${p['商品名']}」は読み込みませんでした`);
+        return false;
+      }
+      seenIds.add(p.id);
       return true;
     });
   } catch(e) {
@@ -603,26 +621,85 @@ function showClearHistoryConfirm() {
   });
 }
 
-// ==================== サーバー連携用URL(data/serverlink.ymlのみ使用) ====================
-async function loadServerUrlDefault() {
+// ==================== サーバー連携用の設定(data/serverlink.yml) ====================
+async function loadServerLinkConfig() {
   try {
     const res = await fetch('./data/serverlink.yml');
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const text = await res.text();
     const parsed = jsyaml.load(text);
-    if (parsed && typeof parsed.server_url === 'string') return parsed.server_url.trim();
+    if (parsed && typeof parsed.server_url === 'string') serverUrlDefault = parsed.server_url.trim();
+    if (parsed && typeof parsed.api_key === 'string') apiKey = parsed.api_key.trim();
   } catch(e) {
     console.warn('serverlink.yml読み込み失敗:', e.message);
   }
-  return '';
 }
 
 async function initServerSettings() {
-  serverUrlDefault = await loadServerUrlDefault();
+  await loadServerLinkConfig();
 }
 
 function getEffectiveServerUrl() {
   return serverUrlDefault;
+}
+
+// ==================== 商品管理PIN設定(data/pin.yml) ====================
+async function loadPinConfig() {
+  try {
+    const res = await fetch('./data/pin.yml');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const text = await res.text();
+    const parsed = jsyaml.load(text);
+    if (parsed && typeof parsed === 'object') {
+      pinConfig.use_pin = !!parsed.use_pin;
+      pinConfig.pin = (typeof parsed.pin === 'string' && parsed.pin) ? parsed.pin : 'DEFAULT';
+    }
+  } catch(e) {
+    console.warn('pin.yml読み込み失敗(PIN機能は無効のまま動作します):', e.message);
+  }
+}
+
+// PINが必要な場合はポップアップを表示し、正しく入力されたらonSuccessを実行する。
+// 一度正しく入力したら(pinVerified)、以降アプリを閉じるまでは聞き直さない。
+function requirePin(onSuccess) {
+  if (!pinConfig.use_pin || pinVerified) { onSuccess(); return; }
+
+  const overlay = document.createElement('div');
+  overlay.id = 'pin-popup';
+  overlay.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4';
+  overlay.innerHTML = `
+    <div class="bg-white rounded-xl shadow-2xl p-6 max-w-xs w-full">
+      <h2 class="font-bold text-lg mb-4 text-center">暗証番号を入力</h2>
+      <input type="password" id="pin-input" inputmode="numeric" autocomplete="off"
+        class="w-full p-3 border border-gray-200 rounded-lg outline-none text-center text-xl tracking-widest mb-2" placeholder="****">
+      <p id="pin-error" class="text-red-500 text-xs text-center mb-3 hidden">暗証番号が違います</p>
+      <div class="flex gap-3">
+        <button id="pin-cancel" class="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold py-2 rounded-lg text-sm transition">キャンセル</button>
+        <button id="pin-submit" class="flex-1 bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 rounded-lg text-sm transition">確認</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const input = overlay.querySelector('#pin-input');
+  input.focus();
+
+  const submit = () => {
+    if (input.value === pinConfig.pin) {
+      pinVerified = true;
+      overlay.remove();
+      onSuccess();
+    } else {
+      overlay.querySelector('#pin-error').classList.remove('hidden');
+      input.value = '';
+      input.focus();
+      playSound('remove');
+    }
+  };
+
+  overlay.querySelector('#pin-submit').addEventListener('click', submit);
+  overlay.querySelector('#pin-cancel').addEventListener('click', () => overlay.remove());
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
 }
 
 // ==================== 商品レンダリング ====================
@@ -736,7 +813,7 @@ function renderHistoryList(list) {
     div.innerHTML = `
       <div class="flex justify-between items-center mb-2">
         <span class="font-bold text-lg">受付 #${t.orderNumber}</span>
-        <span class="text-sm text-gray-500">${t.timestamp}</span>
+        <span class="text-sm text-gray-500">${formatTimestamp(t.timestamp)}</span>
       </div>
       <div class="text-xs space-y-1 text-gray-700 mb-2">${itemsHtml}</div>
       <div class="flex justify-between text-sm font-bold border-t pt-2 mt-1">
@@ -753,7 +830,7 @@ function renderHistorySummary() {
   const totalRevenue = posHistory.reduce((s, t) => s + t.total, 0);
   const count = posHistory.length;
   const totalItems = posHistory.reduce((s, t) => s + t.items.reduce((is, i) => is + i.数量, 0), 0);
-  const lastTimestamp = count > 0 ? posHistory[count - 1].timestamp : '─';
+  const lastTimestamp = count > 0 ? formatTimestamp(posHistory[count - 1].timestamp) : '─';
   el.innerHTML = `
     <h3 class="font-bold text-gray-700 mb-3">売上集計</h3>
     <div class="grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
@@ -839,7 +916,7 @@ function showProductEditPopup(index) {
     const type = document.getElementById('edit-product-type').value.trim();
     const price = Number(document.getElementById('edit-product-price').value);
     if (!isValidProductName(name)) { alert('商品名には文字を1文字以上含めてください(記号・数字だけは登録できません)'); return; }
-    if (!isValidPrice(price)) { alert('価格は1以上の整数で入力してください'); return; }
+    if (!isValidPrice(price)) { alert('価格は1以上の整数で、' + MAX_PRICE_DIGITS + '桁以内で入力してください'); return; }
 
     products[index]['商品名'] = name;
     products[index]['値段'] = price;
@@ -957,7 +1034,7 @@ async function handleSend() {
   try {
     const res = await fetch(`${serverUrl}/submit`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
       body: JSON.stringify({ deviceName: selectedDevice, transactions: posHistory })
     });
 
@@ -995,7 +1072,9 @@ async function loadServerData() {
   document.getElementById('server-tx-list').innerHTML = '<div class="text-center text-gray-400 py-4">読み込み中...</div>';
 
   try {
-    const res = await fetch(`${serverUrl}/api/transactions`);
+    const res = await fetch(`${serverUrl}/api/transactions`, {
+      headers: { 'X-API-Key': apiKey }
+    });
     const data = await res.json();
     if (!data.ok) {
       setServerStatus('disconnected');
@@ -1023,7 +1102,7 @@ function renderServerSummary() {
   const totalRevenue = serverTransactions.reduce((s, t) => s + (t.total || 0), 0);
   const count = serverTransactions.length;
   const totalItems = serverTransactions.reduce((s, t) => s + (t.items || []).reduce((is, i) => is + (i.数量 || 0), 0), 0);
-  const lastTimestamp = count > 0 ? serverTransactions[0].timestamp : '─';
+  const lastTimestamp = count > 0 ? formatTimestamp(serverTransactions[0].timestamp) : '─';
   el.innerHTML = `
     <div class="flex justify-between"><span class="text-gray-500">総売上</span><span class="font-bold text-green-600">¥${totalRevenue.toLocaleString()}</span></div>
     <div class="flex justify-between"><span class="text-gray-500">取引件数</span><span class="font-bold text-gray-800">${count}件</span></div>
@@ -1151,7 +1230,7 @@ function renderServerTxList(transactions) {
           <span class="text-blue-600 font-bold">受付番号: ${t.orderNumber}</span>
           <span class="font-bold text-lg">¥${(t.total || 0).toLocaleString()}</span>
         </div>
-        <div class="text-xs text-gray-400 mb-2">${escapeHtml(t.timestamp)}</div>
+        <div class="text-xs text-gray-400 mb-2">${escapeHtml(formatTimestamp(t.timestamp))}</div>
         <div class="text-sm text-gray-700 mb-2">${itemsHtml}</div>
         <div class="text-right text-xs text-gray-500 border-t border-gray-200 pt-2 mt-2">預り: ¥${(t.tender || 0).toLocaleString()} / おつり: ¥${(t.change || 0).toLocaleString()}</div>
       </div>
@@ -1222,7 +1301,7 @@ function setupEvents() {
       total: due,
       tender: currentTenderAmount,
       change,
-      timestamp: new Date().toLocaleString('ja-JP')
+      timestamp: new Date().toISOString()
     };
 
     // DB保存はここで確定させる。失敗した場合はposHistoryにも一切触れず、
@@ -1360,9 +1439,11 @@ function setupEvents() {
 
   // 画面1 → 画面5（商品管理）
   document.getElementById('btn-to-manager').addEventListener('click', () => {
-    renderProductManagementList();
-    showScreen('screen5_manage');
-    playSound('navigate');
+    requirePin(() => {
+      renderProductManagementList();
+      showScreen('screen5_manage');
+      playSound('navigate');
+    });
   });
 
   // 画面5 → 画面1（戻る）
@@ -1380,7 +1461,7 @@ function setupEvents() {
     const type = typeEl.value.trim();
     const price = Number(priceEl.value);
     if (!isValidProductName(name)) { alert('商品名には文字を1文字以上含めてください(記号・数字だけは登録できません)'); return; }
-    if (!isValidPrice(price)) { alert('価格は1以上の整数で入力してください'); return; }
+    if (!isValidPrice(price)) { alert('価格は1以上の整数で、' + MAX_PRICE_DIGITS + '桁以内で入力してください'); return; }
     const newId = products.length > 0 ? Math.max(...products.map(p => p.id)) + 1 : 1;
     const newProduct = { id: newId, '商品名': name, '値段': price };
     if (type) newProduct['種類'] = type;
@@ -1468,6 +1549,7 @@ async function startApp() {
   try {
     await db.open();
     await initServerSettings();
+    await loadPinConfig();
     await loadHistory();
     await loadProductsFromYAML();
   } catch(e) {
