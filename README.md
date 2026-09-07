@@ -14,7 +14,7 @@
 - 複数端末のデータをまとめたい場合は、オンライン環境でのみ集計サーバーへ送信することで対応してください。
 - 集計サーバーは[こちら](https://github.com/sunaneko1223/POS-Server_v2)
 - Replitはこちら
-　- [公式サイト](https://replit.com/)
+  - [公式サイト](https://replit.com/)
   - [僕のプロジェクト](https://replit.com/@sunaneko1223/POS-Serverv2)
 
 **長時間使用時の注意**
@@ -40,7 +40,7 @@
 2. `settings>pages`に移動します。
 3. BranchをNoneからmainに変更してsaveします。
 4. 数分後、自動で専用のリンクが発行されます。
-※Vercel等を使う場合はGithubでリンクを生成しなくて構いません。
+ ※Vercel等を使う場合はGithubでリンクを生成しなくて構いません。
 
 **開発者向け・ZIPでやる場合(非公開リポジトリ)**
 1. このリポジトリをZIPでダウンロードします。
