@@ -196,7 +196,8 @@ body { font-family: 'Inter', 'Noto Sans JP', sans-serif; -webkit-tap-highlight-c
 
         <!-- 売上集計パネル -->
         <div id="panel-summary" class="accordion-panel hidden">
-          <div id="server-summary" class="space-y-1.5 text-sm"></div>
+          <div id="server-summary" class="space-y-1.5 text-sm mb-3"></div>
+          <button id="server-csv-btn" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg text-xs transition">CSVで保存</button>
         </div>
 
         <!-- 各商品の販売数パネル -->
@@ -1111,6 +1112,27 @@ function renderServerSummary() {
   `;
 }
 
+// 現在サーバーから取得済みの全端末取引データをCSVとしてダウンロードする
+function downloadServerCsv() {
+  if (!serverTransactions.length) { alert('ダウンロードできるデータがありません'); return; }
+
+  const escapeCsv = (v) => `"${String(v).replace(/"/g, '""')}"`;
+  const header = ['受付番号', 'レジ番号', '合計', '預り', 'おつり', '日時', '商品明細'];
+  const rows = serverTransactions.map(t => {
+    const itemsText = (t.items || []).map(i => `${i['商品名']}${i['種類'] ? `（${i['種類']}）` : ''}×${i['数量']}`).join('/');
+    return [t.orderNumber, t.deviceName || '', t.total || 0, t.tender || 0, t.change || 0, formatTimestamp(t.timestamp), itemsText].map(escapeCsv).join(',');
+  });
+  const csv = '\uFEFF' + [header.map(escapeCsv).join(','), ...rows].join('\n'); // \uFEFF: Excelで文字化けしないようにするBOM
+
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `pos-history_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 // ==================== 各商品の販売数パネル ====================
 // 商品名+種類の組み合わせ単位で別々に集計する(例:「かき氷（いちご）」「かき氷（メロン）」は別行)
 function getProductRankingData() {
@@ -1407,6 +1429,9 @@ function setupEvents() {
 
   // 各商品の販売数タブ: 表示方法の切り替え
   document.getElementById('ranking-sort').addEventListener('change', renderProductRanking);
+
+  // 売上集計タブ: CSVで保存
+  document.getElementById('server-csv-btn').addEventListener('click', downloadServerCsv);
 
   // 検索タブ: 日付の追加
   document.getElementById('search-date-add-btn').addEventListener('click', () => {
